@@ -1,10 +1,10 @@
 {
   "name": "school-ai-backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "School AI Backend",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "",
@@ -13,6 +13,7 @@
     "@google/generative-ai": "^0.24.1",
     "dotenv": "^17.4.2",
     "express": "^4.22.1",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "cors": "^2.8.5"
   }
 }
