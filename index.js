@@ -6,9 +6,44 @@ app.use(express.json());
 
 const API_KEY = process.env.GEMINI_API_KEY;
 
+// ======================
+// STARTUP VALIDATION
+// ======================
+if (!API_KEY) {
+  console.error("❌ Missing GEMINI_API_KEY in environment variables");
+  process.exit(1);
+}
+
 // Fix fetch for Node
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
+
+// ======================
+// VALIDATION HELPERS
+// ======================
+function validateSchoolData(schoolData) {
+  if (!schoolData || typeof schoolData !== "object") {
+    return { valid: false, error: "school_data must be an object" };
+  }
+
+  if (!Array.isArray(schoolData.students)) {
+    return { valid: false, error: "school_data.students must be an array" };
+  }
+
+  if (!Array.isArray(schoolData.marks)) {
+    return { valid: false, error: "school_data.marks must be an array" };
+  }
+
+  if (schoolData.students.length === 0) {
+    return { valid: false, error: "school_data.students cannot be empty" };
+  }
+
+  if (schoolData.marks.length === 0) {
+    return { valid: false, error: "school_data.marks cannot be empty" };
+  }
+
+  return { valid: true };
+}
 
 // ======================
 // HEALTH CHECK
@@ -39,14 +74,14 @@ async function callGemini(body, retries = 3) {
       }
 
       if (data?.error?.message?.includes("high demand")) {
-        console.log("Gemini overloaded, retrying...");
+        console.log(`Gemini overloaded, retrying... (attempt ${i + 1}/${retries})`);
         await new Promise((r) => setTimeout(r, 2000));
         continue;
       }
 
       return data;
     } catch (err) {
-      console.error("API error:", err);
+      console.error(`API error (attempt ${i + 1}/${retries}):`, err.message);
       await new Promise((r) => setTimeout(r, 2000));
     }
   }
@@ -61,8 +96,15 @@ app.post("/ai", async (req, res) => {
   try {
     const { prompt, school_data } = req.body;
 
-    if (!prompt) {
-      return res.json({ reply: "No prompt provided" });
+    // ✅ VALIDATION: Check if prompt exists
+    if (!prompt || typeof prompt !== "string" || prompt.trim() === "") {
+      return res.status(400).json({ reply: "❌ No prompt provided" });
+    }
+
+    // ✅ VALIDATION: Check if school_data is valid
+    const validation = validateSchoolData(school_data);
+    if (!validation.valid) {
+      return res.status(400).json({ reply: `❌ ${validation.error}` });
     }
 
     // ======================
@@ -106,7 +148,7 @@ ${prompt}
     });
 
     if (result?.error?.message) {
-      return res.json({
+      return res.status(503).json({
         reply: "⚠️ AI is busy. Please try again.",
       });
     }
@@ -117,8 +159,8 @@ ${prompt}
 
     res.json({ reply: text });
   } catch (err) {
-    console.error(err);
-    res.json({ reply: "Server error" });
+    console.error("Error in /ai route:", err);
+    res.status(500).json({ reply: "❌ Server error" });
   }
 });
 
@@ -128,6 +170,28 @@ ${prompt}
 app.post("/ai-report", async (req, res) => {
   try {
     const { student_id, term_id, school_data } = req.body;
+
+    // ✅ VALIDATION: Check if student_id exists and is valid
+    if (!student_id || (typeof student_id !== "number" && typeof student_id !== "string")) {
+      return res.status(400).json({ report: "❌ Invalid student_id" });
+    }
+
+    // ✅ VALIDATION: Check if term_id exists
+    if (!term_id || (typeof term_id !== "number" && typeof term_id !== "string")) {
+      return res.status(400).json({ report: "❌ Invalid term_id" });
+    }
+
+    // ✅ VALIDATION: Check if school_data is valid
+    const validation = validateSchoolData(school_data);
+    if (!validation.valid) {
+      return res.status(400).json({ report: `❌ ${validation.error}` });
+    }
+
+    // ✅ VALIDATION: Check if student exists in data
+    const studentExists = school_data.students.some((s) => s.id == student_id);
+    if (!studentExists) {
+      return res.status(404).json({ report: `❌ Student with ID ${student_id} not found` });
+    }
 
     const prompt = `
 Generate a student report card.
@@ -149,20 +213,35 @@ Include:
       contents: [{ parts: [{ text: prompt }] }],
     });
 
+    if (result?.error?.message) {
+      return res.status(503).json({
+        report: "⚠️ AI is busy. Please try again.",
+      });
+    }
+
     const text =
       result?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "No response";
+      "No response from AI";
 
     res.json({ report: text });
   } catch (err) {
-    console.error(err);
-    res.json({ report: "Error generating report" });
+    console.error("Error in /ai-report route:", err);
+    res.status(500).json({ report: "❌ Server error" });
   }
+});
+
+// ======================
+// ERROR HANDLING MIDDLEWARE
+// ======================
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: "Internal server error" });
 });
 
 // ======================
 // START SERVER
 // ======================
-app.listen(3000, () => {
-  console.log("🚀 Server running on http://127.0.0.1:3000");
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://127.0.0.1:${PORT}`);
 });
