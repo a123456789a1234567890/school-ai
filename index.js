@@ -4,169 +4,155 @@ require("dotenv").config();
 const app = express();
 app.use(express.json());
 
+// ======================
+// ENV VARIABLES
+// ======================
 const API_KEY = process.env.GEMINI_API_KEY;
 
-// fetch for Node
+// ======================
+// FIX fetch for Node (safe for older Node versions)
+// ======================
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 // ======================
-// HEALTH CHECK
+// PORT (RENDER COMPATIBLE)
+// ======================
+const PORT = process.env.PORT || 3000;
+
+// ======================
+// HEALTH CHECK ROUTE
 // ======================
 app.get("/", (req, res) => {
-  res.send("School AI Backend Running");
+  res.send("School AI Backend Running 🚀");
 });
-
-// ======================
-// GEMINI CALL WITH RETRY
-// ======================
-async function callGemini(body, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      );
-
-      const data = await response.json();
-
-      if (data?.candidates?.length) return data;
-
-      if (data?.error?.message?.includes("high demand")) {
-        console.log("Gemini busy, retrying...");
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
-
-      return data;
-    } catch (err) {
-      console.error("Gemini error:", err);
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-  }
-
-  return { error: { message: "AI unavailable" } };
-}
-
-// ======================
-// NORMALIZE SCHOOL DATA (KEY FIX)
-// ======================
-function normalizeSchoolData(data) {
-  if (!data || typeof data !== "object") {
-    return { students: [], marks: [], subjects: [], classes: [] };
-  }
-
-  // If PHP sends { success: true, students: [...] }
-  if (data.success) {
-    data = {
-      students: data.students || [],
-      marks: data.marks || [],
-      subjects: data.subjects || [],
-      classes: data.classes || [],
-    };
-  }
-
-  return {
-    students: Array.isArray(data.students) ? data.students : [],
-    marks: Array.isArray(data.marks) ? data.marks : [],
-    subjects: Array.isArray(data.subjects) ? data.subjects : [],
-    classes: Array.isArray(data.classes) ? data.classes : [],
-  };
-}
 
 // ======================
 // AI CHAT ROUTE
 // ======================
 app.post("/ai", async (req, res) => {
   try {
-    let { prompt, school_data } = req.body;
+    const { prompt, school_data } = req.body;
 
     if (!prompt) {
-      return res.json({ reply: "No prompt provided" });
+      return res.status(400).json({ reply: "No prompt provided" });
     }
 
-    // 🔥 FIX: ALWAYS SAFE DATA
-    school_data = normalizeSchoolData(school_data);
+    if (!API_KEY) {
+      return res.status(500).json({ reply: "Missing GEMINI_API_KEY" });
+    }
 
     const context = `
-You are a SCHOOL PERFORMANCE ANALYST.
+You are an AI assistant inside a School Management System.
 
-RULES:
-- Always analyze student performance
-- Group marks by student_id
-- Compute averages when possible
-- Rank students if enough data exists
-- If no data, say clearly "No data available"
+Use the provided school data to answer accurately and intelligently.
 
-DATA:
+SCHOOL DATA:
 ${JSON.stringify(school_data, null, 2)}
 
-QUESTION:
+USER QUESTION:
 ${prompt}
+
+INSTRUCTIONS:
+- Use only provided data when possible
+- Give teacher-level insights
+- Mention student names if present
+- Be precise, structured, and helpful
 `;
 
-    const result = await callGemini({
-      contents: [{ parts: [{ text: context }] }],
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: context }],
+            },
+          ],
+        }),
+      }
+    );
+
+    const data = await response.json();
 
     const text =
-      result?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      data?.error?.message ||
       "No response from AI";
 
     res.json({ reply: text });
   } catch (err) {
-    console.error(err);
-    res.json({ reply: "Server error" });
+    console.error("AI ROUTE ERROR:", err);
+    res.status(500).json({ reply: "Server error" });
   }
 });
 
 // ======================
-// REPORT ROUTE
+// REPORT GENERATION ROUTE
 // ======================
 app.post("/ai-report", async (req, res) => {
   try {
     const { student_id, term_id, school_data } = req.body;
 
-    const safeData = normalizeSchoolData(school_data);
+    if (!API_KEY) {
+      return res.status(500).json({ report: "Missing GEMINI_API_KEY" });
+    }
 
     const prompt = `
-Generate a student report card.
+Generate a professional student report card.
 
-DATA:
-${JSON.stringify(safeData)}
+Student Data:
+${JSON.stringify(school_data, null, 2)}
 
 Student ID: ${student_id}
 Term ID: ${term_id}
 
 Include:
-- performance summary
-- strengths
-- weaknesses
-- recommendations
+- Performance summary
+- Strengths
+- Weaknesses
+- Recommendations
+- Teacher remarks
 `;
 
-    const result = await callGemini({
-      contents: [{ parts: [{ text: prompt }] }],
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: prompt }],
+            },
+          ],
+        }),
+      }
+    );
+
+    const result = await response.json();
 
     const text =
       result?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      result?.error?.message ||
       "No response";
 
     res.json({ report: text });
   } catch (err) {
-    console.error(err);
-    res.json({ report: "Error generating report" });
+    console.error("REPORT ROUTE ERROR:", err);
+    res.status(500).json({ report: "Server error generating report" });
   }
 });
 
 // ======================
 // START SERVER
 // ======================
-app.listen(3000, () => {
-  console.log("🚀 Server running on http://127.0.0.1:3000");
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
