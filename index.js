@@ -1,25 +1,6 @@
-const express = require("express");
-require("dotenv").config();
-
-const app = express();
-app.use(express.json());
-
-const PORT = process.env.PORT || 3000;
-const API_KEY = process.env.GEMINI_API_KEY;
-
-// Safe fetch for Render
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
-
-// Health check
-app.get("/", (req, res) => {
-  res.send("AI API is running 🚀");
-});
-
-// Simple AI route
 app.post("/ai", async (req, res) => {
   try {
-    const { prompt } = req.body;
+    const { prompt, school_data } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ reply: "Please provide a prompt" });
@@ -27,6 +8,27 @@ app.post("/ai", async (req, res) => {
 
     if (!API_KEY) {
       return res.status(500).json({ reply: "Missing API key" });
+    }
+
+    // =========================
+    // ADD SCHOOL CONTEXT (NEW)
+    // =========================
+    let finalPrompt = prompt;
+
+    if (school_data) {
+      finalPrompt = `
+You are a School AI Assistant.
+
+Use the following school data to answer the question:
+
+SCHOOL DATA:
+${JSON.stringify(school_data, null, 2)}
+
+USER QUESTION:
+${prompt}
+
+Give clear analysis, mention students if relevant, and provide insights.
+      `;
     }
 
     const response = await fetch(
@@ -39,7 +41,7 @@ app.post("/ai", async (req, res) => {
         body: JSON.stringify({
           contents: [
             {
-              parts: [{ text: prompt }],
+              parts: [{ text: finalPrompt }],
             },
           ],
         }),
@@ -59,8 +61,4 @@ app.post("/ai", async (req, res) => {
     console.error(error);
     res.status(500).json({ reply: "Server error" });
   }
-});
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
 });
