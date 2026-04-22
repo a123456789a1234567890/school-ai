@@ -1,3 +1,26 @@
+const express = require("express");
+require("dotenv").config();
+
+const app = express(); // ✅ MUST BE FIRST (fixes your error)
+app.use(express.json());
+
+const PORT = process.env.PORT || 3000;
+const API_KEY = process.env.GEMINI_API_KEY;
+
+// Safe fetch for Render
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+
+// ======================
+// HEALTH CHECK
+// ======================
+app.get("/", (req, res) => {
+  res.send("AI API is running 🚀");
+});
+
+// ======================
+// AI ROUTE (UPDATED WITH SCHOOL DATA SUPPORT)
+// ======================
 app.post("/ai", async (req, res) => {
   try {
     const { prompt, school_data } = req.body;
@@ -10,9 +33,9 @@ app.post("/ai", async (req, res) => {
       return res.status(500).json({ reply: "Missing API key" });
     }
 
-    // =========================
-    // ADD SCHOOL CONTEXT (NEW)
-    // =========================
+    // ======================
+    // BUILD PROMPT (SAFE EXTENSION)
+    // ======================
     let finalPrompt = prompt;
 
     if (school_data) {
@@ -27,10 +50,13 @@ ${JSON.stringify(school_data, null, 2)}
 USER QUESTION:
 ${prompt}
 
-Give clear analysis, mention students if relevant, and provide insights.
+Give clear, structured, and helpful analysis.
       `;
     }
 
+    // ======================
+    // CALL GEMINI API
+    // ======================
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${API_KEY}`,
       {
@@ -61,4 +87,11 @@ Give clear analysis, mention students if relevant, and provide insights.
     console.error(error);
     res.status(500).json({ reply: "Server error" });
   }
+});
+
+// ======================
+// START SERVER
+// ======================
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
