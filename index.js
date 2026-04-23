@@ -23,7 +23,7 @@ app.get("/", (req, res) => {
 // ======================
 app.post("/ai", async (req, res) => {
   try {
-    const { prompt, school_data } = req.body;
+    const { prompt, school_data, history } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ reply: "Please provide a prompt" });
@@ -36,23 +36,36 @@ app.post("/ai", async (req, res) => {
     // ======================
     // BUILD PROMPT (SAFE EXTENSION)
     // ======================
+let conversationContext = "";
+
+if (history && Array.isArray(history)) {
+  conversationContext = history
+    .map(msg => `${msg.role.toUpperCase()}: ${msg.content}`)
+    .join("\n");
+}
+    
     let finalPrompt = prompt;
 
-    if (school_data) {
-      finalPrompt = `
+if (school_data) {
+  finalPrompt = `
 You are a School AI Assistant.
+
+Conversation so far:
+${conversationContext}
 
 Use the following school data to answer the question:
 
 SCHOOL DATA:
 ${JSON.stringify(school_data, null, 2)}
 
-USER QUESTION:
+Latest USER QUESTION:
 ${prompt}
 
-Give clear, structured, and helpful analysis.
-      `;
-    }
+IMPORTANT:
+- Use conversation context to resolve references like "him", "above", "that student"
+- Give clear, structured, and helpful analysis.
+  `;
+}
 
     // ======================
     // CALL GEMINI API
