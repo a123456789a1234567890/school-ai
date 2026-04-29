@@ -1,5 +1,6 @@
 //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
 
+
 /*
 const express = require("express");
 require("dotenv").config();
@@ -113,7 +114,6 @@ app.listen(PORT, () => {
 });
 
 */
-
 const express = require("express");
 require("dotenv").config();
 
@@ -123,7 +123,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.OPENROUTER_API_KEY;
 
-// Safe fetch for Render
+// Safe fetch (works on Render)
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
@@ -135,7 +135,7 @@ app.get("/", (req, res) => {
 });
 
 // ======================
-// AI ROUTE (OPENROUTER VERSION)
+// AI ROUTE
 // ======================
 app.post("/ai", async (req, res) => {
   try {
@@ -150,62 +150,63 @@ app.post("/ai", async (req, res) => {
     }
 
     // ======================
-    // BUILD MESSAGES ARRAY (BETTER THAN STRING CONTEXT)
+    // BUILD PROMPT (UNCHANGED)
     // ======================
-    let messages = [];
+    let conversationContext = "";
 
-    // Add system instruction if school data exists
-    if (school_data) {
-      messages.push({
-        role: "system",
-        content: `You are a School AI Assistant.
-
-Use the provided school data to answer accurately.
-Resolve references like "him", "above", or "that student" using context.
-Give structured, clear, and helpful answers.
-
-SCHOOL DATA:
-${JSON.stringify(school_data, null, 2)}`
-      });
-    }
-
-    // Add conversation history (if any)
     if (history && Array.isArray(history)) {
-      history.forEach(msg => {
-        if (msg.role && msg.content) {
-          messages.push({
-            role: msg.role, // "user" or "assistant"
-            content: msg.content
-          });
-        }
-      });
+      conversationContext = history
+        .map(msg => `${msg.role.toUpperCase()}: ${msg.content}`)
+        .join("\n");
     }
 
-    // Add latest user prompt
-    messages.push({
-      role: "user",
-      content: prompt
-    });
+    let finalPrompt = prompt;
+
+    if (school_data) {
+      finalPrompt = `
+You are a School AI Assistant.
+
+Conversation so far:
+${conversationContext}
+
+Use the following school data to answer the question:
+
+${JSON.stringify(school_data, null, 2)}
+
+User question:
+${prompt}
+      `;
+    }
 
     // ======================
-    // CALL OPENROUTER API
+    // OPENROUTER CALL
     // ======================
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${API_KEY}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3000", // optional but recommended
-        "X-Title": "School AI Assistant"
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "openai/gpt-4o-mini", // you can change this
-        messages: messages,
-      }),
+        model: "openai/gpt-4o-mini",
+        messages: [
+          {
+            role: "user",
+            content: finalPrompt
+          }
+        ]
+      })
     });
 
     const data = await response.json();
 
+    // 🔍 DEBUG (check Render logs)
+    console.log("OPENROUTER RESPONSE:");
+    console.log(JSON.stringify(data, null, 2));
+
+    // ======================
+    // CORRECT RESPONSE PARSING
+    // ======================
     const reply =
       data?.choices?.[0]?.message?.content ||
       data?.error?.message ||
@@ -214,7 +215,7 @@ ${JSON.stringify(school_data, null, 2)}`
     res.json({ reply });
 
   } catch (error) {
-    console.error(error);
+    console.error("SERVER ERROR:", error);
     res.status(500).json({ reply: "Server error" });
   }
 });
