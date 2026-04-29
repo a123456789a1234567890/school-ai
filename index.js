@@ -123,7 +123,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.OPENROUTER_API_KEY;
 
-// Safe fetch (works on Render)
+// Safe fetch (Render compatible)
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
@@ -150,7 +150,7 @@ app.post("/ai", async (req, res) => {
     }
 
     // ======================
-    // BUILD PROMPT (UNCHANGED)
+    // Conversation context
     // ======================
     let conversationContext = "";
 
@@ -160,18 +160,38 @@ app.post("/ai", async (req, res) => {
         .join("\n");
     }
 
+    // ======================
+    // SMART ROUTING (FIX)
+    // ======================
+    const isSchoolQuestion =
+      /student|mark|grade|class|report|school|exam|result|pupil|teacher/i.test(prompt);
+
     let finalPrompt = prompt;
 
-    if (school_data) {
+    if (school_data && isSchoolQuestion) {
       finalPrompt = `
 You are a School AI Assistant.
 
 Conversation so far:
 ${conversationContext}
 
-Use the following school data to answer the question:
+Use the following school data to answer:
 
 ${JSON.stringify(school_data, null, 2)}
+
+User question:
+${prompt}
+
+IMPORTANT:
+- If student is not found, say "Student not found in records"
+- Be clear and structured
+      `;
+    } else {
+      finalPrompt = `
+You are a helpful AI assistant.
+
+Conversation so far:
+${conversationContext}
 
 User question:
 ${prompt}
@@ -179,7 +199,7 @@ ${prompt}
     }
 
     // ======================
-    // OPENROUTER CALL
+    // OPENROUTER REQUEST
     // ======================
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -200,12 +220,12 @@ ${prompt}
 
     const data = await response.json();
 
-    // 🔍 DEBUG (check Render logs)
+    // 🔍 DEBUG LOG (CHECK RENDER LOGS)
     console.log("OPENROUTER RESPONSE:");
     console.log(JSON.stringify(data, null, 2));
 
     // ======================
-    // CORRECT RESPONSE PARSING
+    // RESPONSE PARSING
     // ======================
     const reply =
       data?.choices?.[0]?.message?.content ||
@@ -220,8 +240,6 @@ ${prompt}
   }
 });
 
-// ======================
-// START SERVER
 // ======================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
