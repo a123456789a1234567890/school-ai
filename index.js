@@ -128,7 +128,7 @@ const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 // ======================
-// HEALTH CHECK
+// HEALTH CHECK  
 // ======================
 app.get("/", (req, res) => {
   res.send("AI API is running 🚀");
@@ -208,7 +208,7 @@ ${prompt}
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "openai/gpt-4o-mini",
+        model: "meta-llama/llama-3-8b-instruct",
         messages: [
           {
             role: "user",
