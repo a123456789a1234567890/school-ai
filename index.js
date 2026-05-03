@@ -170,7 +170,7 @@ ${JSON.stringify(school_data, null, 2)}`;
     messages.push({ role: "user", content: prompt });
 
     // Use a free OpenRouter model (no credits needed)
-    const model = "nousresearch/hermes-2-pro-mistral-7b"; // free, fast, good for school data
+    const model = "meta-llama/llama-3-8b-instruct";  // ✅ valid & free // free, fast, good for school data
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
