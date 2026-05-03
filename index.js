@@ -123,16 +123,15 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.OPENROUTER_API_KEY;
 
-// ======================
-// HEALTH CHECK  
-// ======================
+// Warn on startup if API key is missing
+if (!API_KEY) {
+  console.error("❌ OPENROUTER_API_KEY is not set in environment variables!");
+}
+
 app.get("/", (req, res) => {
   res.send("AI API is running 🚀");
 });
 
-// ======================
-// AI ROUTE
-// ======================
 app.post("/ai", async (req, res) => {
   try {
     const { prompt, school_data, history } = req.body;
@@ -141,55 +140,45 @@ app.post("/ai", async (req, res) => {
       return res.status(400).json({ reply: "Please provide a prompt" });
     }
     if (!API_KEY) {
-      return res.status(500).json({ reply: "Missing OpenRouter API key" });
+      return res.status(500).json({ reply: "Server misconfiguration: Missing OpenRouter API key" });
     }
 
-    // ------------------------------------------------------------------
-    // 1. Build the conversation messages array (OpenRouter format)
-    // ------------------------------------------------------------------
+    // Build messages array (same as before)
     const messages = [];
 
-    // System message (defines AI behavior)
+    // System message with optional school data
     let systemContent = "You are a helpful AI assistant.";
-
-    // If school data exists and the prompt looks like a school-related question
-    const isSchoolQuestion =
-      /student|mark|grade|class|report|school|exam|result|pupil|teacher/i.test(prompt);
+    const isSchoolQuestion = /student|mark|grade|class|report|school|exam|result|pupil|teacher/i.test(prompt);
     
     if (school_data && isSchoolQuestion) {
-      systemContent = `You are a School AI Assistant. Use the following school data to answer questions accurately.
-If a student is not found in the data, reply exactly: "Student not found in records".
+      systemContent = `You are a School AI Assistant. Use the following school data to answer.
+If a student is not found, reply exactly: "Student not found in records".
 
-SCHOOL DATA:
+DATA:
 ${JSON.stringify(school_data, null, 2)}`;
     }
-
     messages.push({ role: "system", content: systemContent });
 
-    // Append conversation history (if provided and valid)
+    // Add conversation history
     if (history && Array.isArray(history)) {
       for (const msg of history) {
-        // Ensure only 'user' and 'assistant' roles are added
         if (msg.role === "user" || msg.role === "assistant") {
           messages.push({ role: msg.role, content: msg.content });
         }
       }
     }
-
-    // Append the current user prompt
     messages.push({ role: "user", content: prompt });
 
-    // ------------------------------------------------------------------
-    // 2. Call OpenRouter API
-    // ------------------------------------------------------------------
-    // Feel free to change the model to any OpenRouter supported one
-    const model = "meta-llama/llama-3-8b-instruct"; // or "openai/gpt-3.5-turbo", "google/gemini-flash-1.5", etc.
+    // Use a free OpenRouter model (no credits needed)
+    const model = "nousresearch/hermes-2-pro-mistral-7b"; // free, fast, good for school data
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${API_KEY}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://your-school-app.com",  // Change to your actual domain
+        "X-Title": "School AI Assistant"
       },
       body: JSON.stringify({
         model: model,
@@ -201,31 +190,32 @@ ${JSON.stringify(school_data, null, 2)}`;
 
     const data = await response.json();
 
-    // Debug log (visible in Render / your server logs)
-    console.log("OpenRouter response status:", response.status);
+    // Detailed logging for debugging (visible in Render logs)
+    console.log(`[OpenRouter] Status: ${response.status}`);
     if (!response.ok) {
-      console.error("OpenRouter error details:", JSON.stringify(data, null, 2));
+      console.error(`[OpenRouter] Error:`, JSON.stringify(data, null, 2));
     }
 
-    // ------------------------------------------------------------------
-    // 3. Extract reply
-    // ------------------------------------------------------------------
-    let reply = "No response from AI.";
+    // Extract reply or meaningful error
+    let reply = "";
     if (data?.choices?.[0]?.message?.content) {
       reply = data.choices[0].message.content;
     } else if (data?.error?.message) {
+      // Forward the exact OpenRouter error (e.g., "User not found", "Insufficient credits")
       reply = `API Error: ${data.error.message}`;
+    } else {
+      reply = "No response from AI.";
     }
 
     res.json({ reply });
 
   } catch (error) {
     console.error("Server error:", error);
-    res.status(500).json({ reply: "Internal server error. Please try again later." });
+    res.status(500).json({ reply: "Internal server error. Check logs." });
   }
 });
 
-// ======================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  if (!API_KEY) console.warn("⚠️  OPENROUTER_API_KEY is missing. Set it in Render environment.");
 });
