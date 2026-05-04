@@ -105,7 +105,7 @@ IMPORTANT:
     res.status(500).json({ reply: "Server error" });
   }
 });
-
+ const model = "tencent/hy3-preview:free"; 
 // ======================
 // START SERVER
 // ======================
@@ -123,7 +123,6 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.OPENROUTER_API_KEY;
 
-// Warn on startup if API key is missing
 if (!API_KEY) {
   console.error("❌ OPENROUTER_API_KEY is not set in environment variables!");
 }
@@ -143,23 +142,23 @@ app.post("/ai", async (req, res) => {
       return res.status(500).json({ reply: "Server misconfiguration: Missing OpenRouter API key" });
     }
 
-    // Build messages array (same as before)
+    // Build messages array
     const messages = [];
 
-    // System message with optional school data
+    // System message - ALWAYS include school data if provided (no keyword filter)
     let systemContent = "You are a helpful AI assistant.";
-    const isSchoolQuestion = /student|mark|grade|class|report|school|exam|result|pupil|teacher/i.test(prompt);
-    
-    if (school_data && isSchoolQuestion) {
-      systemContent = `You are a School AI Assistant. Use the following school data to answer.
+    if (school_data && Object.keys(school_data).length > 0 && school_data.students && school_data.students.length > 0) {
+      systemContent = `You are a School AI Assistant. Use the following school data to answer questions.
 If a student is not found, reply exactly: "Student not found in records".
 
-DATA:
-${JSON.stringify(school_data, null, 2)}`;
+SCHOOL DATA (JSON):
+${JSON.stringify(school_data, null, 2)}
+
+Answer based ONLY on the data above. Be concise and factual.`;
     }
     messages.push({ role: "system", content: systemContent });
 
-    // Add conversation history
+    // Add conversation history if provided
     if (history && Array.isArray(history)) {
       for (const msg of history) {
         if (msg.role === "user" || msg.role === "assistant") {
@@ -169,39 +168,36 @@ ${JSON.stringify(school_data, null, 2)}`;
     }
     messages.push({ role: "user", content: prompt });
 
-    // Use a free OpenRouter model (no credits needed)
-    const model = "tencent/hy3-preview:free"; // ✅ valid & free // free, fast, good for school data
+    // Use a reliable free model
+     const model = "tencent/hy3-preview:free"; 
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${API_KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://your-school-app.com",  // Change to your actual domain
+        "HTTP-Referer": "https://eduone.ct.ws",
         "X-Title": "School AI Assistant"
       },
       body: JSON.stringify({
         model: model,
         messages: messages,
-        temperature: 0.7,
+        temperature: 0.3,   // lower = more factual
         max_tokens: 1000
       })
     });
 
     const data = await response.json();
 
-    // Detailed logging for debugging (visible in Render logs)
     console.log(`[OpenRouter] Status: ${response.status}`);
     if (!response.ok) {
       console.error(`[OpenRouter] Error:`, JSON.stringify(data, null, 2));
     }
 
-    // Extract reply or meaningful error
     let reply = "";
     if (data?.choices?.[0]?.message?.content) {
       reply = data.choices[0].message.content;
     } else if (data?.error?.message) {
-      // Forward the exact OpenRouter error (e.g., "User not found", "Insufficient credits")
       reply = `API Error: ${data.error.message}`;
     } else {
       reply = "No response from AI.";
